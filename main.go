@@ -1,68 +1,65 @@
 package main
 
 import (
-	"fmt"
+	"database/sql"
 	"log"
 	"net/http"
 	"os"
+	"sync/atomic"
+
+	"boot.dev/chirpy/internal/database"
+	"github.com/joho/godotenv"
+	_ "github.com/lib/pq"
 )
 
+type apiConfig struct {
+	fileserverHits atomic.Int32
+	db             *database.Queries
+}
+
 func main() {
-	const filePathRoot = "."
+	const filepathRoot = "."
 	const port = "8080"
 
-	apiCfg := apiConfig{}
+  godotenv.Load()
+	dbURL := os.Getenv("DB_URL")
+	if dbURL == "" {
+		log.Fatal("DB_URL must be set")
+	}
+
+	dbConn, err := sql.Open("postgres", dbURL)
+	if err != nil {
+		log.Fatalf("Error opening database: %s", err)
+	}
+	dbQueries := database.New(dbConn)
+
+	apiCfg := apiConfig{
+		fileserverHits: atomic.Int32{},
+		db:             dbQueries,
+	}
+
 	mux := http.NewServeMux()
-	mux.Handle(
-		"/app/",
-		apiCfg.middlewareMetricsInc(
-			http.StripPrefix("/app/", http.FileServer(http.Dir(filePathRoot))),
-		),
+	fsHandler := apiCfg.middlewareMetricsInc(
+		http.StripPrefix("/app", http.FileServer(http.Dir(filepathRoot))),
 	)
-	mux.Handle("GET /api/healthz", healthCheck())
-	mux.Handle("GET /admin/metrics", apiCfg.metrics())
-	mux.Handle("/api/reset", apiCfg.resetHits())
+	mux.Handle("/app/*", fsHandler)
+
+	mux.HandleFunc("GET /api/healthz", handlerReadiness)
+	mux.HandleFunc("GET /api/reset", apiCfg.handlerReset)
+	// mux.HandleFunc("POST /api/chirps", apiCfg.handlerChirpsCreate)
+	// mux.HandleFunc("GET /api/chirps/", apiCfg.handlerChirpRetrieve)
+	// mux.HandleFunc("GET /api/chirps", apiCfg.handlerChirpsRetrieve)
+	// mux.HandleFunc("POST /api/users", apiCfg.handlerUsersCreate)
+	// mux.HandleFunc("GET /api/users/", apiCfg.handlerUserRetrieve)
+	// mux.HandleFunc("GET /api/users", apiCfg.handlerUsersRetrieve)
+
+	mux.HandleFunc("GET /admin/metrics", apiCfg.handlerMetrics)
 
 	srv := &http.Server{
 		Addr:    ":" + port,
 		Handler: mux,
 	}
 
-	log.Printf("Serving files from %s on port: %s\n", filePathRoot, port)
+	log.Printf("Serving files from %s on port: %s\n", filepathRoot, port)
 	log.Fatal(srv.ListenAndServe())
-}
-
-type apiConfig struct {
-	fileserverHits int
-}
-
-func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		cfg.fileserverHits++
-		next.ServeHTTP(w, r)
-	})
-}
-
-func (cfg *apiConfig) metrics() http.Handler {
-	b, err := os.ReadFile("metrics.html") // just pass the file name
-	if err != nil {
-		fmt.Print(err)
-	}
-	str := string(b) // convert content to a 'string'
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(fmt.Sprintf(str, cfg.fileserverHits)))
-	})
-}
-
-func (cfg *apiConfig) resetHits() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		cfg.fileserverHits = 0
-	})
-}
-
-func healthCheck() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content Type", "text/plain; charset=utf-8")
-		w.Write([]byte("OK"))
-	})
 }
