@@ -2,9 +2,12 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
+	"strings"
 	"time"
 
+	"boot.dev/chirpy/internal/auth"
 	"boot.dev/chirpy/internal/database"
 	"github.com/google/uuid"
 )
@@ -20,7 +23,6 @@ type Chirp struct {
 func (cfg *apiConfig) handlerChirpsCreate(w http.ResponseWriter, r *http.Request) {
 	type parameters struct {
 		Body   string    `json:"body"`
-		UserID uuid.UUID `json:"user_id"`
 	}
 
 	decoder := json.NewDecoder(r.Body)
@@ -31,15 +33,25 @@ func (cfg *apiConfig) handlerChirpsCreate(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+  token, err := auth.GetBearerToken(r.Header)
+  if err != nil {
+    respondWithError(w, http.StatusUnauthorized, "Missing Authorization header", err)
+  }
+
+  userId, err := auth.ValidateJWT(token, cfg.secret)
+  if err != nil {
+    respondWithError(w, http.StatusUnauthorized, "Invalid token", err)
+  }
+
 	cleaned, err := validateChirp(params.Body)
 	if err != nil {
-		respondWithError(w, http.StatusBadRequest, err.Error(), err)
+		respondWithError(w, http.StatusBadRequest, "Invalid chirp", err)
 		return
 	}
 
 	chirp, err := cfg.db.CreateChirp(r.Context(), database.CreateChirpParams{
 		Body:   cleaned,
-		UserID: params.UserID,
+		UserID: userId,
 	})
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Couldn't create chirp", err)
@@ -104,8 +116,9 @@ func (cfg *apiConfig) handlerChirpsGet(w http.ResponseWriter, r *http.Request) {
 		Body:      dbChirp.Body,
 	})
 }
+
 func (cfg *apiConfig) handlerChirpsRetrieve(w http.ResponseWriter, r *http.Request) {
-	dbChirps, err := cfg.db.GetChirps(r.Context())
+	dbChirps, err := cfg.db.GetAllChirps(r.Context())
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Couldn't retrieve chirps", err)
 		return
