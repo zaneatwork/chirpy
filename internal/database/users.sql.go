@@ -13,11 +13,11 @@ import (
 const createUser = `-- name: CreateUser :one
 INSERT INTO users (id, created_at, updated_at, email, hashed_password)
 VALUES (
-  gen_random_uuid(),
-  NOW(),
-  NOW(),
-  $1,
-  $2
+    gen_random_uuid(),
+    now(),
+    now(),
+    $1,
+    $2
 )
 RETURNING id, created_at, updated_at, email, hashed_password
 `
@@ -41,12 +41,34 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 }
 
 const getUser = `-- name: GetUser :one
-SELECT id, created_at, updated_at, email, hashed_password FROM users 
+SELECT id, created_at, updated_at, email, hashed_password FROM users
 WHERE email = $1
 `
 
 func (q *Queries) GetUser(ctx context.Context, email string) (User, error) {
 	row := q.db.QueryRowContext(ctx, getUser, email)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Email,
+		&i.HashedPassword,
+	)
+	return i, err
+}
+
+const getUserFromRefreshToken = `-- name: GetUserFromRefreshToken :one
+SELECT users.id, users.created_at, users.updated_at, users.email, users.hashed_password FROM users
+INNER JOIN refresh_tokens ON users.id = refresh_tokens.user_id
+WHERE
+    refresh_tokens.token = $1
+    AND refresh_tokens.expires_at > now()
+    AND refresh_tokens.revoked_at IS NULL
+`
+
+func (q *Queries) GetUserFromRefreshToken(ctx context.Context, token string) (User, error) {
+	row := q.db.QueryRowContext(ctx, getUserFromRefreshToken, token)
 	var i User
 	err := row.Scan(
 		&i.ID,

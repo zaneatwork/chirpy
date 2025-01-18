@@ -42,6 +42,7 @@ func main() {
 	dbConn, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		log.Fatalf("Error opening database: %s", err)
+    panic("Could not open database.")
 	}
 	dbQueries := database.New(dbConn)
 
@@ -66,7 +67,9 @@ func main() {
 	mux.HandleFunc("GET /api/chirps/{chirpID}", apiCfg.handlerChirpsGet)
 
 	mux.HandleFunc("POST /api/users", apiCfg.handlerUsersCreate)
-	mux.HandleFunc("POST /api/login", apiCfg.handlerUserLogin)
+	mux.HandleFunc("POST /api/login", apiCfg.handlerAuthLogin)
+	mux.HandleFunc("POST /api/refresh", apiCfg.handlerAuthRefresh)
+	mux.HandleFunc("POST /api/revoke", apiCfg.handlerAuthRevoke)
 
 	srv := &http.Server{
 		Addr:    ":" + port,

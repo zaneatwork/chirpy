@@ -1,6 +1,8 @@
 package auth
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
@@ -55,10 +57,6 @@ func ValidateJWT(tokenString, tokenSecret string) (uuid.UUID, error) {
 }
 
 func GetBearerToken(headers http.Header) (string, error) {
-  // This function should look for the Authorization header in the headers 
-  // parameter and return the TOKEN_STRING if it exists (stripping off the 
-  // Bearer prefix and whitespace). If the header doesn't exist, return an error. This is an easy one to write a unit test for, and I'd recommend doing so.
-
   authHeader := headers.Get("Authorization")
   if len(authHeader) == 0 {
     return "", errors.New("Failed to get Bearer Token, Authorization header missing.")
@@ -71,4 +69,11 @@ func GetBearerToken(headers http.Header) (string, error) {
   bearerToken := headerParts[1]
 
   return bearerToken, nil
+}
+
+func MakeRefreshToken() (string, error) {
+  tokenB := make([]byte, 32)
+  _, err := rand.Read(tokenB) 
+  tokenStr := hex.EncodeToString(tokenB)
+  return tokenStr, err
 }
